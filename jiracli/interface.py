@@ -1,21 +1,24 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 """
 
 """
+from __future__ import print_function
+from builtins import str
 import argparse
-import shlex
 import keyring
-
-from suds import WebFault
+import shlex
 import sys
+from suds import WebFault
+
 from jiracli import __version__
 from jiracli.bridge import get_bridge
 from jiracli.cache import clear_cache
 from jiracli.errors import JIRAError
 from jiracli.errors import JiraAuthenticationError, JiraInitializationError
 from jiracli.errors import UsageWarning, JiraCliError, UsageError
-from jiracli.processor import ViewCommand, AddCommand, UpdateCommand, WorkLogCommand
 from jiracli.processor import ListCommand
+from jiracli.processor import ViewCommand, AddCommand, UpdateCommand, WorkLogCommand, \
+    AdjustParentEstimateCommand
 from jiracli.utils import print_error, WARNING, Config, colorfunc, prompt, \
     print_output
 
@@ -27,23 +30,23 @@ def initialize(config, base_url=None, username=None, password=None,
     if error or not (url and bridge and bridge.ping()):
         url = url or prompt("Base url for the jira instance: ")
         username = (
-            username or
-            (not error and config.username) or
-            prompt("username: ")
+                username or
+                (not error and config.username) or
+                prompt("username: ")
         )
         password = (
-            password or
-            (not error and keyring.get_password('jira-cli', username)) or
-            prompt("password: ", True)
+                password or
+                (not error and keyring.get_password('jira-cli', username)) or
+                prompt("password: ", True)
         )
         jira = not error and bridge or get_bridge(protocol)(url, config, persist)
         persist_warning = "would you like to persist the credentials to the local keyring? [y/n]:"
 
         first_run = (
-            not(
-                config.base_url or
-                config.username or
-                keyring.get_password('jira-cli', username)
+            not (
+                    config.base_url or
+                    config.username or
+                    keyring.get_password('jira-cli', username)
             )
         )
         if persist or first_run:
@@ -53,9 +56,9 @@ def initialize(config, base_url=None, username=None, password=None,
         try:
             jira.login(username, password)
             if (
-                (persist or first_run) and
-                (not (config.username == username or config.password == password)) and
-                "y" == prompt(persist_warning)
+                    (persist or first_run) and
+                    (not (config.username == username or config.password == password)) and
+                    "y" == prompt(persist_warning)
             ):
                 config.username = username
                 keyring.set_password('jira-cli', username, password)
@@ -115,6 +118,21 @@ def build_parser():
     list = subparsers.add_parser('list', parents=[base], help='list jira types and properties')
     list.set_defaults(cmd=ListCommand)
 
+    trefix = subparsers.add_parser("trefix", parents=[base],
+                                   help="adjust time estimate of corresponding parent story according to TRE-R rules")
+    trefix.set_defaults(cmd=AdjustParentEstimateCommand)
+    # TODO: do this by inheriting this group of arguments (so share between adjust and view)
+    search_args = trefix.add_mutually_exclusive_group(required=False)
+    search_args.add_argument('--search', dest='search_freetext')
+    search_args.add_argument('--search-jql', dest='search_jql',
+                             help='search using JQL')
+    search_args.add_argument('--filter', dest='filter', help='filter(s) to use',
+                             action='append')
+    trefix.add_argument('jira_ids', nargs='*', help='jira issue ids')
+    trefix.add_argument("--dry", dest="dry",
+                        help="Do not actually perform the action but show what would happen",
+                        action="store_true")
+
     search_args = view.add_mutually_exclusive_group(required=False)
     search_args.add_argument('--search', dest='search_freetext')
     search_args.add_argument('--search-jql', dest='search_jql',
@@ -132,7 +150,8 @@ def build_parser():
     work_log.add_argument("jira_id", help="jira issue id")
     work_log.add_argument("--comment", dest="comment", help="work log description", nargs=1)
     work_log.add_argument("--spent", dest="spent", help="the time spent working", nargs=1)
-    work_log.add_argument("--remaining", dest="remaining", help="set remaining estimate to new value", nargs=1)
+    work_log.add_argument("--remaining", dest="remaining",
+                          help="set remaining estimate to new value", nargs=1)
 
     list.add_argument('type', choices=['filters', 'projects', 'issue_types',
                                        'subtask_types', 'priorities',
@@ -216,8 +235,8 @@ def build_parser():
 def cli(args=sys.argv[1:]):
     import optparse
     alias_config = Config(section='alias')
-    if set(alias_config.items().keys()).intersection(args):
-        for alias, target in alias_config.items().items():
+    if set(list(alias_config.items().keys())).intersection(args):
+        for alias, target in list(alias_config.items()).items():
             if args[0] == alias:
                 args = shlex.split(target) + args[1:]
                 break
@@ -227,8 +246,10 @@ def cli(args=sys.argv[1:]):
         pre_opts, pre_args = None, None
         try:
             optparser = optparse.OptionParser()
+
             def void(*args):
                 raise SystemExit()
+
             optparser.print_usage = void
             optparser.add_option("", "--version", action='store_true', default=False)
             pre_opts, pre_args = optparser.parse_args(args)
